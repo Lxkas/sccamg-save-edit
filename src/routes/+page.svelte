@@ -1,23 +1,28 @@
 <script lang="ts">
-	import { Loader, Lock, LockOpen, Key, FileBraces, FileKey, Download, Copy, Terminal } from "@lucide/svelte";
+	import { Loader, Lock, LockOpen, Key, Download, Copy, Terminal, RotateCcw, Settings } from "@lucide/svelte";
 
-	// Import shadcn components (adjust paths to match your project structure)
+	// Import shadcn components
 	import * as Card from "$lib/components/ui/card";
 	import * as Tabs from "$lib/components/ui/tabs";
+	import * as Accordion from "$lib/components/ui/accordion";
 	import { Input } from "$lib/components/ui/input";
 	import { Button } from "$lib/components/ui/button";
 	import { Label } from "$lib/components/ui/label";
 	import { Textarea } from "$lib/components/ui/textarea";
 	import { toast } from "svelte-sonner";
 
-	// --- Constants ---
-	const AES_INFO_STR = "aes-key-for-local-data";
-	const HMAC_INFO_STR = "hmac-key-for-local-data";
-	const SALT_PREFIX = "PlaymeowJTSKYTIG";
+	// --- Default Constants (for reset) ---
+	const DEFAULT_AES_INFO = "aes-key-for-local-data";
+	const DEFAULT_HMAC_INFO = "hmac-key-for-local-data";
+	const DEFAULT_SALT_PREFIX = "PlaymeowJTSKYTIG";
 
 	// --- State ---
+	// Editable Advanced Parameters
+	let aesInfoStr = DEFAULT_AES_INFO;
+	let hmacInfoStr = DEFAULT_HMAC_INFO;
+	let saltPrefix = DEFAULT_SALT_PREFIX;
+
 	let masterKeyInput = "";
-	let masterKeyHex = "";
 	let isProcessing = false;
 
 	let decryptFile: File | null = null;
@@ -37,28 +42,22 @@
 		return bytes;
 	};
 
-	const bytesToHex = (bytes: Uint8Array) => {
-		return Array.from(bytes)
-			.map((b) => b.toString(16).padStart(2, "0"))
-			.join("");
-	};
-
 	const stringToBytes = (str: string) => new TextEncoder().encode(str);
 
 	// Unwraps the Registry Base64 format if needed
 	const normalizeMasterKey = (input: string): Uint8Array => {
 		const cleanInput = input.trim();
-
 		// Case 1: Already Hex (64 chars)
 		if (cleanInput.length === 64 && /^[0-9a-fA-F]+$/.test(cleanInput)) {
 			return hexToBytes(cleanInput);
 		}
 
-		// Case 2: Base64 Wrapped (starts with "UGxheW1lb3...")
+		// Case 2: Base64 Wrapped (starts with user-defined prefix)
 		try {
 			const outerDecoded = atob(cleanInput);
-			if (outerDecoded.startsWith(SALT_PREFIX)) {
-				const innerBase64 = outerDecoded.substring(SALT_PREFIX.length);
+			// Updated to use reactive saltPrefix [cite: 13]
+			if (outerDecoded.startsWith(saltPrefix)) {
+				const innerBase64 = outerDecoded.substring(saltPrefix.length);
 				const rawKeyStr = atob(innerBase64); // This results in binary string
 				// Convert binary string to Uint8Array
 				const bytes = new Uint8Array(rawKeyStr.length);
@@ -78,16 +77,11 @@
 
 	async function hkdf(ikm: Uint8Array, length: number, infoStr: string): Promise<Uint8Array> {
 		const info = stringToBytes(infoStr);
-		const salt = new Uint8Array(32); // Zero-filled 32 bytes as per Node default behavior in provided script
+		const salt = new Uint8Array(32); // Zero-filled 32 bytes
 
-		const keyMaterial = await window.crypto.subtle.importKey(
-			"raw",
-			ikm as BufferSource, // Add 'as BufferSource'
-			"HKDF",
-			false,
-			["deriveBits"]
-		);
-
+		const keyMaterial = await window.crypto.subtle.importKey("raw", ikm as BufferSource, "HKDF", false, [
+			"deriveBits"
+		]);
 		const derivedBits = await window.crypto.subtle.deriveBits(
 			{
 				name: "HKDF",
@@ -103,9 +97,9 @@
 	}
 
 	async function decryptData(encryptedBytes: Uint8Array, masterKey: Uint8Array) {
-		// 1. Derive Keys
-		const aesKeyBytes = await hkdf(masterKey, 16, AES_INFO_STR);
-		const hmacKeyBytes = await hkdf(masterKey, 32, HMAC_INFO_STR);
+		// 1. Derive Keys (Using reactive variables) [cite: 20, 21]
+		const aesKeyBytes = await hkdf(masterKey, 16, aesInfoStr);
+		const hmacKeyBytes = await hkdf(masterKey, 32, hmacInfoStr);
 
 		// 2. Parse File Structure: [IV (16)][Ciphertext][HMAC (32)]
 		const AES_IV_SIZE = 16;
@@ -126,7 +120,6 @@
 			false,
 			["verify"]
 		);
-
 		const isValid = await window.crypto.subtle.verify(
 			"HMAC",
 			hmacKey,
@@ -137,39 +130,34 @@
 		if (!isValid) throw new Error("HMAC verification failed! Key might be wrong or file corrupted.");
 
 		// 4. Decrypt AES-CBC
-		// FIX: Use explicit object syntax for algorithm
 		const aesKey = await window.crypto.subtle.importKey(
 			"raw",
 			aesKeyBytes as BufferSource,
-			{ name: "AES-CBC" }, // Changed from string to object
+			{ name: "AES-CBC" },
 			false,
 			["decrypt"]
 		);
-
 		const decryptedBuffer = await window.crypto.subtle.decrypt({ name: "AES-CBC", iv: iv }, aesKey, ciphertext);
 
 		return new TextDecoder().decode(decryptedBuffer);
 	}
 
 	async function encryptData(jsonStr: string, masterKey: Uint8Array) {
-		// 1. Derive Keys
-		const aesKeyBytes = await hkdf(masterKey, 16, AES_INFO_STR);
-		const hmacKeyBytes = await hkdf(masterKey, 32, HMAC_INFO_STR);
+		// 1. Derive Keys (Using reactive variables) [cite: 28, 29]
+		const aesKeyBytes = await hkdf(masterKey, 16, aesInfoStr);
+		const hmacKeyBytes = await hkdf(masterKey, 32, hmacInfoStr);
 
 		const plaintext = stringToBytes(jsonStr);
 
 		// 2. Generate IV & Encrypt
 		const iv = window.crypto.getRandomValues(new Uint8Array(16));
-
-		// FIX: Use explicit object syntax for algorithm
 		const aesKey = await window.crypto.subtle.importKey(
 			"raw",
 			aesKeyBytes as BufferSource,
-			{ name: "AES-CBC" }, // Changed from string to object
+			{ name: "AES-CBC" },
 			false,
 			["encrypt"]
 		);
-
 		const ciphertextBuffer = await window.crypto.subtle.encrypt({ name: "AES-CBC", iv: iv }, aesKey, plaintext);
 		const ciphertext = new Uint8Array(ciphertextBuffer);
 
@@ -199,6 +187,13 @@
 
 	// --- Handlers ---
 
+	const resetDefaults = () => {
+		aesInfoStr = DEFAULT_AES_INFO;
+		hmacInfoStr = DEFAULT_HMAC_INFO;
+		saltPrefix = DEFAULT_SALT_PREFIX;
+		toast.success("Parameters reset to default.");
+	};
+
 	const handleDecrypt = async () => {
 		if (!decryptFile || !masterKeyInput) {
 			toast.error("Please provide both the Master Key and a .dat File.");
@@ -206,7 +201,6 @@
 		}
 
 		isProcessing = true;
-
 		decryptedJson = "";
 		if (downloadUrl) URL.revokeObjectURL(downloadUrl);
 		downloadUrl = "";
@@ -218,14 +212,11 @@
 
 			const json = await decryptData(fileBytes, keyBytes);
 
-			// Validate JSON
 			JSON.parse(json);
-
 			decryptedJson = json;
 
 			toast.success("Decryption successful!");
 
-			// Prepare download
 			const blob = new Blob([json], { type: "application/json" });
 			downloadUrl = URL.createObjectURL(blob);
 			downloadName = decryptFile.name.replace(/\.dat$/, ".json");
@@ -251,7 +242,6 @@
 			const keyBytes = normalizeMasterKey(masterKeyInput);
 			const fileText = await encryptFile.text();
 
-			// Validate JSON before encrypting
 			try {
 				JSON.parse(fileText);
 			} catch {
@@ -259,10 +249,8 @@
 			}
 
 			const encryptedBytes = await encryptData(fileText, keyBytes);
-
 			toast.success("Encryption successful!");
 
-			// Prepare download
 			const blob = new Blob([encryptedBytes], { type: "application/octet-stream" });
 			downloadUrl = URL.createObjectURL(blob);
 			downloadName = encryptFile.name.replace(/\.json$/, ".dat");
@@ -277,7 +265,6 @@
 
 	const copyCommand = () => {
 		const cmd = `Get-ChildItem "HKCU:\\SOFTWARE\\Playmeow" -Recurse | Get-ItemProperty | ForEach-Object { $_.PSObject.Properties | Where-Object Name -like "*LOCAL_MASTER_KEY*" } | ForEach-Object { $s = [System.Text.Encoding]::UTF8.GetString($_.Value).Trim([char]0); [System.BitConverter]::ToString([System.Convert]::FromBase64String([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($s)).Substring(16))).Replace("-", "") }`;
-
 		try {
 			navigator.clipboard.writeText(cmd);
 			toast.success("PowerShell command copied to clipboard!");
@@ -310,7 +297,7 @@
 				<Label for="key">Enter Master Key (Hex or Registry String)</Label>
 				<Input id="key" placeholder="43316A4DE51C8B..." bind:value={masterKeyInput} />
 				<p class="text-xs text-muted-foreground">
-					Supports raw 64-char Hex or the "PlaymeowJTSKYTIG..." registry string.
+					Supports raw 64-char Hex or the stored registry string as Hex.
 				</p>
 			</div>
 
@@ -327,6 +314,40 @@
 					Get-ChildItem "HKCU:\SOFTWARE\Playmeow" ... (Click copy for full command)
 				</code>
 			</div>
+
+			<Accordion.Root type="single" class="w-full">
+				<Accordion.Item value="advanced">
+					<Accordion.Trigger class="text-sm font-medium text-muted-foreground hover:no-underline">
+						<div class="flex items-center gap-2">
+							<Settings class="h-4 w-4" /> Addtional Parameters
+						</div>
+					</Accordion.Trigger>
+					<Accordion.Content class="space-y-4">
+						<div class="grid gap-4 md:grid-cols-2">
+							<div class="space-y-2">
+								<Label for="aes-info">AES Info String (HKDF)</Label>
+								<Input id="aes-info" bind:value={aesInfoStr} />
+							</div>
+							<div class="space-y-2">
+								<Label for="hmac-info">HMAC Info String (HKDF)</Label>
+								<Input id="hmac-info" bind:value={hmacInfoStr} />
+							</div>
+							<div class="space-y-2 md:col-span-2">
+								<Label for="salt-prefix">Registry Salt Prefix</Label>
+								<Input id="salt-prefix" bind:value={saltPrefix} />
+								<p class="text-[10px] text-muted-foreground">
+									Used to detect and decode base64 registry keys.
+								</p>
+							</div>
+						</div>
+						<div class="flex justify-end">
+							<Button variant="ghost" size="sm" class="h-8 text-xs" onclick={resetDefaults}>
+								<RotateCcw class="mr-2 h-3 w-3" /> Reset Defaults
+							</Button>
+						</div>
+					</Accordion.Content>
+				</Accordion.Item>
+			</Accordion.Root>
 		</Card.Content>
 	</Card.Root>
 
