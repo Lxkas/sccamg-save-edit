@@ -215,8 +215,8 @@
 
 			const json = await decryptData(fileBytes, keyBytes);
 
-			JSON.parse(json);
-			decryptedJson = json;
+			const parsedJson = JSON.parse(json);
+			decryptedJson = JSON.stringify(parsedJson, null, 2);
 
 			toast.success("Decryption successful!");
 
@@ -329,12 +329,14 @@
 
 			<Accordion.Root type="single" class="w-full">
 				<Accordion.Item value="advanced">
-					<Accordion.Trigger class="text-sm font-medium text-muted-foreground hover:no-underline">
+					<Accordion.Trigger
+						class="bg-muted p-2 text-sm font-medium text-muted-foreground hover:no-underline"
+					>
 						<div class="flex items-center gap-2">
 							<Settings class="h-4 w-4" /> Additional Parameters
 						</div>
 					</Accordion.Trigger>
-					<Accordion.Content class="space-y-4">
+					<Accordion.Content class="space-y-4 pt-2">
 						<div class="grid gap-4 md:grid-cols-2">
 							<div class="space-y-2">
 								<Label for="aes-info">AES Info String (HKDF)</Label>
@@ -354,7 +356,7 @@
 						</div>
 						<div class="flex justify-end">
 							<Button variant="ghost" size="sm" class="h-8 text-xs" onclick={resetDefaults}>
-								<RotateCcw class="mr-2 h-3 w-3" /> Reset Defaults
+								<RotateCcw class="h-3 w-3" /> Reset Defaults
 							</Button>
 						</div>
 					</Accordion.Content>
