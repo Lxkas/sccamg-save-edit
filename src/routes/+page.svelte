@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Loader, Lock, LockOpen, Key, Download, Copy, Terminal, RotateCcw, Settings } from "@lucide/svelte";
+	import { VList } from "virtua/svelte";
 
 	// Import shadcn components
 	import * as Card from "$lib/components/ui/card";
@@ -29,6 +30,8 @@
 	let encryptFile: File | null = null;
 
 	let decryptedJson = "";
+	$: jsonLines = decryptedJson ? decryptedJson.split("\n") : [];
+
 	let downloadUrl = "";
 	let downloadName = "";
 
@@ -263,13 +266,22 @@
 		}
 	};
 
+	const tryWriteClipboard = (text: string) => {
+		try {
+			navigator.clipboard.writeText(text);
+			return true;
+		} catch {
+			return false;
+		}
+	};
+
 	const copyCommand = () => {
 		const cmd = `Get-ChildItem "HKCU:\\SOFTWARE\\Playmeow" -Recurse | Get-ItemProperty | ForEach-Object { $_.PSObject.Properties | Where-Object Name -like "*LOCAL_MASTER_KEY*" } | ForEach-Object { $s = [System.Text.Encoding]::UTF8.GetString($_.Value).Trim([char]0); [System.BitConverter]::ToString([System.Convert]::FromBase64String([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($s)).Substring(16))).Replace("-", "") }`;
-		try {
-			navigator.clipboard.writeText(cmd);
+
+		if (tryWriteClipboard(cmd)) {
 			toast.success("PowerShell command copied to clipboard!");
-		} catch (e: unknown) {
-			toast.error("Failed to copy command to clipboard. Error: " + (e as Error).message);
+		} else {
+			toast.error("Failed to copy command to clipboard.");
 		}
 	};
 </script>
@@ -319,7 +331,7 @@
 				<Accordion.Item value="advanced">
 					<Accordion.Trigger class="text-sm font-medium text-muted-foreground hover:no-underline">
 						<div class="flex items-center gap-2">
-							<Settings class="h-4 w-4" /> Addtional Parameters
+							<Settings class="h-4 w-4" /> Additional Parameters
 						</div>
 					</Accordion.Trigger>
 					<Accordion.Content class="space-y-4">
@@ -381,7 +393,15 @@
 					{#if decryptedJson}
 						<div class="space-y-2">
 							<Label>Preview</Label>
-							<Textarea readonly value={decryptedJson} class="h-48 font-mono text-xs" />
+							<div
+								class="h-48 w-full overflow-y-auto rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs shadow-sm"
+							>
+								<VList data={jsonLines}>
+									{#snippet children(item)}
+										<div class="whitespace-pre">{item}</div>
+									{/snippet}
+								</VList>
+							</div>
 						</div>
 					{/if}
 				</Card.Content>
@@ -394,9 +414,26 @@
 						{/if}
 					</Button>
 					{#if downloadUrl}
-						<Button variant="outline" href={downloadUrl} download={downloadName}>
-							<Download class="mr-2 h-4 w-4" /> Download JSON
-						</Button>
+						<span>
+							<Button
+								variant="outline"
+								onclick={() => {
+									if (tryWriteClipboard(decryptedJson)) {
+										toast.success("Decrypted JSON copied to clipboard!");
+									} else {
+										toast.error("Failed to copy JSON to clipboard.");
+									}
+
+									toast.success("Decrypted JSON copied to clipboard!");
+								}}
+							>
+								<Copy class="mr-2 h-4 w-4" /> Copy JSON
+							</Button>
+
+							<Button variant="outline" href={downloadUrl} download={downloadName}>
+								<Download class="mr-2 h-4 w-4" /> Download JSON
+							</Button>
+						</span>
 					{/if}
 				</Card.Footer>
 			</Card.Root>
