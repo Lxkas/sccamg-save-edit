@@ -336,7 +336,7 @@
 							<Settings class="h-4 w-4" /> Additional Parameters
 						</div>
 					</Accordion.Trigger>
-					<Accordion.Content class="space-y-4 pt-2">
+					<Accordion.Content class="space-y-4 pt-2 pb-0">
 						<div class="grid gap-4 md:grid-cols-2">
 							<div class="space-y-2">
 								<Label for="aes-info">AES Info String (HKDF)</Label>
