@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "fs";
+import { resolve } from "path";
 import {
     hexToBytes,
     stringToBytes,
@@ -408,5 +410,93 @@ describe("integration: full flow with normalizeMasterKey", () => {
         const fromHex = normalizeMasterKey(TEST_KEY_HEX);
         const fromRegistry = normalizeMasterKey(registryValue);
         expect(fromHex).toEqual(fromRegistry);
+    });
+});
+
+// ── roundtrip tests with real save files ────────────────────────────────
+
+const TESTFILES_DIR = resolve(__dirname, "../../testfiles");
+const decryptedJson = readFileSync(resolve(TESTFILES_DIR, "save-decrypted.json"), "utf-8");
+const encryptedDat = new Uint8Array(readFileSync(resolve(TESTFILES_DIR, "save-encrypted.dat")));
+
+describe("roundtrip with real save files", () => {
+    it("decrypted JSON is valid and has expected top-level keys", () => {
+        const parsed = JSON.parse(decryptedJson);
+        expect(parsed).toHaveProperty("env");
+        expect(parsed).toHaveProperty("cg");
+        expect(parsed).toHaveProperty("game_log");
+        expect(parsed).toHaveProperty("save");
+    });
+
+    it("encrypted file has valid structure (>= IV + HMAC minimum)", () => {
+        // minimum: 16 (IV) + 0 (ciphertext) + 32 (HMAC) = 48
+        expect(encryptedDat.length).toBeGreaterThanOrEqual(48);
+        // ciphertext should be block-aligned (multiple of 16)
+        const ciphertextLen = encryptedDat.length - 16 - 32;
+        expect(ciphertextLen % 16).toBe(0);
+        expect(ciphertextLen).toBeGreaterThan(0);
+    });
+
+    it("encrypt → decrypt round-trips the full decrypted JSON", async () => {
+        const encrypted = await encryptData(decryptedJson, TEST_KEY_BYTES);
+        const decrypted = await decryptData(encrypted, TEST_KEY_BYTES);
+        expect(decrypted).toBe(decryptedJson);
+    });
+
+    it("encrypt → decrypt preserves JSON structure of real save data", async () => {
+        const encrypted = await encryptData(decryptedJson, TEST_KEY_BYTES);
+        const decrypted = await decryptData(encrypted, TEST_KEY_BYTES);
+        const original = JSON.parse(decryptedJson);
+        const roundtripped = JSON.parse(decrypted);
+        expect(roundtripped).toEqual(original);
+    });
+
+    it("re-encrypted output has correct binary format for large data", async () => {
+        const encrypted = await encryptData(decryptedJson, TEST_KEY_BYTES);
+        // verify structure
+        expect(encrypted.length).toBeGreaterThanOrEqual(48);
+        const ciphertextLen = encrypted.length - 16 - 32;
+        expect(ciphertextLen % 16).toBe(0);
+        // plaintext is ~1MB, so ciphertext should be reasonably close in size
+        expect(ciphertextLen).toBeGreaterThan(decryptedJson.length * 0.9);
+    });
+
+    it("two encryptions of the same save produce different outputs but identical decryptions", async () => {
+        const enc1 = await encryptData(decryptedJson, TEST_KEY_BYTES);
+        const enc2 = await encryptData(decryptedJson, TEST_KEY_BYTES);
+
+        // different IVs → different ciphertext
+        expect(enc1.slice(0, 16)).not.toEqual(enc2.slice(0, 16));
+
+        // both decrypt to the same content
+        const dec1 = await decryptData(enc1, TEST_KEY_BYTES);
+        const dec2 = await decryptData(enc2, TEST_KEY_BYTES);
+        expect(dec1).toBe(decryptedJson);
+        expect(dec2).toBe(decryptedJson);
+    });
+
+    it("encrypted real file has non-zero IV and HMAC", () => {
+        const iv = encryptedDat.slice(0, 16);
+        const hmac = encryptedDat.slice(encryptedDat.length - 32);
+
+        // IV and HMAC shouldn't be all zeros (statistically impossible for real data)
+        const allZeroIv = iv.every((b) => b === 0);
+        const allZeroHmac = hmac.every((b) => b === 0);
+        expect(allZeroIv).toBe(false);
+        expect(allZeroHmac).toBe(false);
+    });
+
+    it("wrong key fails HMAC on the real encrypted file", async () => {
+        const wrongKey = new Uint8Array(32);
+        wrongKey.fill(0xbb);
+        await expect(decryptData(encryptedDat, wrongKey)).rejects.toThrow("HMAC verification failed");
+    });
+
+    it("corrupting a byte in the real encrypted file fails HMAC", async () => {
+        const corrupted = new Uint8Array(encryptedDat);
+        // flip a byte in the middle of the ciphertext
+        const midpoint = Math.floor(corrupted.length / 2);
+        corrupted[midpoint] ^= 0xff;
+        await expect(decryptData(corrupted, TEST_KEY_BYTES)).rejects.toThrow("HMAC verification failed");
     });
 });
