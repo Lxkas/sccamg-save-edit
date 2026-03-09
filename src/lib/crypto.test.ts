@@ -415,7 +415,7 @@ describe("integration: full flow with normalizeMasterKey", () => {
 
 // ── roundtrip tests with real save files ────────────────────────────────
 
-const TESTFILES_DIR = resolve(__dirname, "../../testfiles");
+const TESTFILES_DIR = resolve(import.meta.dirname, "../../testfiles");
 const decryptedJson = readFileSync(resolve(TESTFILES_DIR, "save-decrypted.json"), "utf-8");
 const encryptedDat = new Uint8Array(readFileSync(resolve(TESTFILES_DIR, "save-encrypted.dat")));
 
