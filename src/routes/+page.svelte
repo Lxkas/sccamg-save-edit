@@ -13,6 +13,14 @@
 		BookOpen
 	} from "@lucide/svelte";
 	import MarkdownContent from "$lib/components/markdown-content.svelte";
+	import {
+		DEFAULT_AES_INFO,
+		DEFAULT_HMAC_INFO,
+		DEFAULT_SALT_PREFIX,
+		normalizeMasterKey,
+		decryptData,
+		encryptData
+	} from "$lib/crypto";
 	import { VList } from "virtua/svelte";
 
 	// Import shadcn components
@@ -252,14 +260,9 @@ Not directly. Each PC has a different Master Key, so a save encrypted on one PC 
 		}
 	];
 
-	// --- Default Constants (for reset) ---
-	const DEFAULT_AES_INFO = "aes-key-for-local-data";
-	const DEFAULT_HMAC_INFO = "hmac-key-for-local-data";
-	const DEFAULT_SALT_PREFIX = "PlaymeowJTSKYTIG";
-
 	// --- State ---
 	// Editable Advanced Parameters
-	let aesInfoStr = $state(DEFAULT_AES_INFO); // Assuming Svelte 5 based on 'onclick' usage in your snippet
+	let aesInfoStr = $state(DEFAULT_AES_INFO);
 	let hmacInfoStr = $state(DEFAULT_HMAC_INFO);
 	let saltPrefix = $state(DEFAULT_SALT_PREFIX);
 
@@ -274,158 +277,6 @@ Not directly. Each PC has a different Master Key, so a save encrypted on one PC 
 
 	let downloadUrl = $state("");
 	let downloadName = $state("");
-
-	// --- Utilities ---
-
-	const hexToBytes = (hex: string) => {
-		const bytes = new Uint8Array(hex.length / 2);
-		for (let i = 0; i < hex.length; i += 2) {
-			bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
-		}
-		return bytes;
-	};
-
-	const stringToBytes = (str: string) => new TextEncoder().encode(str);
-
-	// Unwraps the Registry Base64 format if needed
-	const normalizeMasterKey = (input: string): Uint8Array => {
-		const cleanInput = input.trim();
-		// Case 1: Already Hex (64 chars)
-		if (cleanInput.length === 64 && /^[0-9a-fA-F]+$/.test(cleanInput)) {
-			return hexToBytes(cleanInput);
-		}
-
-		// Case 2: Base64 Wrapped (starts with user-defined prefix)
-		try {
-			const outerDecoded = atob(cleanInput);
-			if (outerDecoded.startsWith(saltPrefix)) {
-				const innerBase64 = outerDecoded.substring(saltPrefix.length);
-				const rawKeyStr = atob(innerBase64); // This results in binary string
-				// Convert binary string to Uint8Array
-				const bytes = new Uint8Array(rawKeyStr.length);
-				for (let i = 0; i < rawKeyStr.length; i++) {
-					bytes[i] = rawKeyStr.charCodeAt(i);
-				}
-				return bytes;
-			}
-		} catch (e) {
-			// Fall through
-		}
-
-		throw new Error("Invalid Master Key format. Must be 64-char Hex or Registry Base64.");
-	};
-
-	// --- Crypto Logic (Web Crypto API) ---
-
-	async function hkdf(ikm: Uint8Array, length: number, infoStr: string): Promise<Uint8Array> {
-		const info = stringToBytes(infoStr);
-		const salt = new Uint8Array(32); // Zero-filled 32 bytes
-
-		const keyMaterial = await window.crypto.subtle.importKey("raw", ikm as BufferSource, "HKDF", false, [
-			"deriveBits"
-		]);
-		const derivedBits = await window.crypto.subtle.deriveBits(
-			{
-				name: "HKDF",
-				hash: "SHA-256",
-				salt: salt,
-				info: info
-			},
-			keyMaterial,
-			length * 8 // bits
-		);
-
-		return new Uint8Array(derivedBits);
-	}
-
-	async function decryptData(encryptedBytes: Uint8Array, masterKey: Uint8Array) {
-		// 1. Derive Keys
-		const aesKeyBytes = await hkdf(masterKey, 16, aesInfoStr);
-		const hmacKeyBytes = await hkdf(masterKey, 32, hmacInfoStr);
-
-		// 2. Parse File Structure: [IV (16)][Ciphertext][HMAC (32)]
-		const AES_IV_SIZE = 16;
-		const HMAC_SIZE = 32;
-
-		if (encryptedBytes.length < AES_IV_SIZE + HMAC_SIZE) throw new Error("File too short");
-
-		const iv = encryptedBytes.slice(0, AES_IV_SIZE);
-		const storedHmac = encryptedBytes.slice(encryptedBytes.length - HMAC_SIZE);
-		const ciphertext = encryptedBytes.slice(AES_IV_SIZE, encryptedBytes.length - HMAC_SIZE);
-		const dataToAuth = encryptedBytes.slice(0, encryptedBytes.length - HMAC_SIZE);
-
-		// 3. Verify HMAC
-		const hmacKey = await window.crypto.subtle.importKey(
-			"raw",
-			hmacKeyBytes as BufferSource,
-			{ name: "HMAC", hash: "SHA-256" },
-			false,
-			["verify"]
-		);
-		const isValid = await window.crypto.subtle.verify(
-			"HMAC",
-			hmacKey,
-			storedHmac as BufferSource,
-			dataToAuth as BufferSource
-		);
-
-		if (!isValid) throw new Error("HMAC verification failed! Key might be wrong or file corrupted.");
-
-		// 4. Decrypt AES-CBC
-		const aesKey = await window.crypto.subtle.importKey(
-			"raw",
-			aesKeyBytes as BufferSource,
-			{ name: "AES-CBC" },
-			false,
-			["decrypt"]
-		);
-		const decryptedBuffer = await window.crypto.subtle.decrypt({ name: "AES-CBC", iv: iv }, aesKey, ciphertext);
-
-		return new TextDecoder().decode(decryptedBuffer);
-	}
-
-	async function encryptData(jsonStr: string, masterKey: Uint8Array) {
-		// 1. Derive Keys
-		const aesKeyBytes = await hkdf(masterKey, 16, aesInfoStr);
-		const hmacKeyBytes = await hkdf(masterKey, 32, hmacInfoStr);
-
-		const plaintext = stringToBytes(jsonStr);
-
-		// 2. Generate IV & Encrypt
-		const iv = window.crypto.getRandomValues(new Uint8Array(16));
-		const aesKey = await window.crypto.subtle.importKey(
-			"raw",
-			aesKeyBytes as BufferSource,
-			{ name: "AES-CBC" },
-			false,
-			["encrypt"]
-		);
-		const ciphertextBuffer = await window.crypto.subtle.encrypt({ name: "AES-CBC", iv: iv }, aesKey, plaintext);
-		const ciphertext = new Uint8Array(ciphertextBuffer);
-
-		// 3. Compute HMAC (IV + Ciphertext)
-		const dataToAuth = new Uint8Array(iv.length + ciphertext.length);
-		dataToAuth.set(iv);
-		dataToAuth.set(ciphertext, iv.length);
-
-		const hmacKey = await window.crypto.subtle.importKey(
-			"raw",
-			hmacKeyBytes as BufferSource,
-			{ name: "HMAC", hash: "SHA-256" },
-			false,
-			["sign"]
-		);
-
-		const signature = await window.crypto.subtle.sign("HMAC", hmacKey, dataToAuth);
-		const hmac = new Uint8Array(signature);
-
-		// 4. Combine: [IV][Ciphertext][HMAC]
-		const finalData = new Uint8Array(dataToAuth.length + hmac.length);
-		finalData.set(dataToAuth);
-		finalData.set(hmac, dataToAuth.length);
-
-		return finalData;
-	}
 
 	// --- Handlers ---
 
@@ -448,11 +299,11 @@ Not directly. Each PC has a different Master Key, so a save encrypted on one PC 
 		downloadUrl = "";
 
 		try {
-			const keyBytes = normalizeMasterKey(masterKeyInput);
+			const keyBytes = normalizeMasterKey(masterKeyInput, saltPrefix);
 			const fileBuffer = await decryptFile.arrayBuffer();
 			const fileBytes = new Uint8Array(fileBuffer);
 
-			const json = await decryptData(fileBytes, keyBytes);
+			const json = await decryptData(fileBytes, keyBytes, aesInfoStr, hmacInfoStr);
 
 			const parsedJson = JSON.parse(json);
 			decryptedJson = JSON.stringify(parsedJson, null, 2);
@@ -481,7 +332,7 @@ Not directly. Each PC has a different Master Key, so a save encrypted on one PC 
 		downloadUrl = "";
 
 		try {
-			const keyBytes = normalizeMasterKey(masterKeyInput);
+			const keyBytes = normalizeMasterKey(masterKeyInput, saltPrefix);
 			const fileText = await encryptFile.text();
 
 			try {
@@ -490,10 +341,10 @@ Not directly. Each PC has a different Master Key, so a save encrypted on one PC 
 				throw new Error("Invalid JSON file.");
 			}
 
-			const encryptedBytes = await encryptData(fileText, keyBytes);
+			const encryptedBytes = await encryptData(fileText, keyBytes, aesInfoStr, hmacInfoStr);
 			toast.success("Encryption successful!");
 
-			const blob = new Blob([encryptedBytes], { type: "application/octet-stream" });
+			const blob = new Blob([encryptedBytes as BlobPart], { type: "application/octet-stream" });
 			downloadUrl = URL.createObjectURL(blob);
 			downloadName = encryptFile.name.replace(/\.json$/, ".dat");
 			if (!downloadName.endsWith(".dat")) downloadName += ".dat";
