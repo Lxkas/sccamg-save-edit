@@ -99,7 +99,7 @@ Your save files are stored in a hidden folder. Here's how to get there:
 
 > **Tip:** If the folder is empty or doesn't exist, the AppData folder might be hidden. In File Explorer, click **View** at the top, then check **Hidden items** to show hidden folders.
 
-The save files are typically named things like \`SaveData0.dat\`, \`SaveData1.dat\`, etc. Each one represents a different save slot.
+You'll see one or more \`.dat\` files. Each file contains **all** save slots (global auto-save + manual slots 1-9), game settings, and CG unlock data in a single encrypted blob.
 
 ## Decrypting
 
@@ -119,28 +119,47 @@ The save files are typically named things like \`SaveData0.dat\`, \`SaveData1.da
 
 ## What JSON looks like
 
-Here's a simplified example:
+Here's a tiny example of what JSON looks like:
 
 \`\`\`json
 {
-  "playerName": "Alice",
-  "level": 5,
+  "name": "Alice",
   "money": 1200,
-  "unlockedCGs": [1, 2, 3, 7]
+  "unlock": true
 }
 \`\`\`
 
 - Values in **quotes** are text: \`"Alice"\`
-- Numbers don't have quotes: \`5\`, \`1200\`
-- Lists are in **square brackets**: \`[1, 2, 3, 7]\`
+- Numbers don't have quotes: \`1200\`
+- \`true\` / \`false\` are boolean (on/off) values, no quotes
+- Lists are in **square brackets**: \`[1, 2, 3]\`
 - Everything is wrapped in **curly braces**: \`{ }\`
+
+## Save file structure
+
+The save file has four top-level sections:
+
+- **\`env\`**: game settings (language, volume, resolution, playtime, etc.)
+- **\`cg\`**: an array of all CG (gallery) scenes. Each CG has an \`"unlock"\` field that is \`true\` or \`false\`
+- **\`game_log\`**: internal log data
+- **\`save\`**: an array of save slots (\`"key": "global"\` for the auto-save, \`"key": "1"\` through \`"key": "9"\` for manual slots). Each slot contains an \`app.db\` object with game state like \`base\` (protagonist stats including \`money\`), \`role\` (character stats like \`hp\`, \`sp\`, \`tp\`), and various \`db_table_*\` / \`db_field_*\` entries for game flags
+
+> **Tip:** The field names like \`db_field_1663134995686\` are auto-generated IDs, they're not human-readable, but each one controls a specific game variable. You'll need to experiment or compare saves to figure out which is which.
 
 ## How to edit
 
 1. Open the downloaded \`.json\` file in your text editor
 2. Use **Ctrl + F** (Find) to search for the value you want to change
-3. Edit the value- for example, change \`"money": 1200\` to \`"money": 99999\`
+3. Edit the value. For example, change \`"money": 0\` to \`"money": 99999\`
 4. Save the file (**Ctrl + S**)
+
+## Common edits
+
+- **Unlock all CGs**: search for \`"unlock": false\` and replace all with \`"unlock": true\` (there are up to 42 CG entries in the \`cg\` array)
+- **Edit money**: in a save slot's \`app.db.base[0]\`, find the \`"money"\` field and change its value
+- **Edit character stats**: in a save slot's \`app.db.role\`, each character has \`hp\`, \`sp\`, and \`tp\` fields
+
+> **Warning:** Each save slot is independent. If you edit slot \`"key": "1"\`, only that slot is affected. The \`"key": "global"\` slot is the auto-save, edit it too if needed.
 
 ## Rules to follow
 
@@ -148,10 +167,9 @@ Here's a simplified example:
 
 - **Don't delete quotes** around text values, \`"Alice"\` is correct, \`Alice\` is not
 - **Don't remove commas** between values, each line (except the last in a group) needs a comma
-- **Don't delete curly braces** \`{ }\` or **square brackets** \`[ ]\` they define the structure
-- **Don't change key names** (the part before the colon) only change the values
-
-> **Tip:** To unlock CGs, look for arrays (lists in square brackets) related to CG or gallery data. Adding numbers to those arrays unlocks the corresponding CGs. The exact field names depend on your game version.
+- **Don't delete curly braces** \`{ }\` or **square brackets** \`[ ]\`, they define the structure
+- **Don't change key names** (the part before the colon), only change the values
+- Boolean values must be exactly \`true\` or \`false\` (lowercase, no quotes)
 
 > **Tip:** If you're unsure about your edit, keep a copy of the original JSON open in another window to compare.`
 		},
