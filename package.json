@@ -37,6 +37,7 @@
 		"vite": "^7.2.6"
 	},
 	"dependencies": {
+		"marked": "^17.0.4",
 		"mode-watcher": "^1.1.0",
 		"virtua": "^0.48.2"
 	}

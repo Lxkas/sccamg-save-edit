@@ -1,16 +1,238 @@
 <script lang="ts">
-	import { Loader, Lock, LockOpen, Key, Download, Copy, Terminal, RotateCcw, Settings } from "@lucide/svelte";
+	import {
+		Loader,
+		Lock,
+		LockOpen,
+		Key,
+		Download,
+		Copy,
+		Terminal,
+		RotateCcw,
+		Settings,
+		CircleQuestionMark,
+		BookOpen
+	} from "@lucide/svelte";
+	import MarkdownContent from "$lib/components/markdown-content.svelte";
 	import { VList } from "virtua/svelte";
 
 	// Import shadcn components
 	import * as Card from "$lib/components/ui/card";
 	import * as Tabs from "$lib/components/ui/tabs";
 	import * as Accordion from "$lib/components/ui/accordion";
+	import * as Dialog from "$lib/components/ui/dialog";
 	import { Input } from "$lib/components/ui/input";
 	import { Button } from "$lib/components/ui/button";
 	import { Label } from "$lib/components/ui/label";
-	import { Textarea } from "$lib/components/ui/textarea";
 	import { toast } from "svelte-sonner";
+
+	// --- Guide Sections ---
+	const guideSections = [
+		{
+			id: "before-you-start",
+			title: "Before You Start",
+			content: `> **Warning:** Always back up your save files before making any changes. If something goes wrong, you can restore the backup and try again. Editing saves incorrectly can break your progress.
+
+## What you'll need
+
+- A **Windows PC** with the game installed
+- The game must have been **launched at least once** (this creates the save files and registry key)
+- A text editor, **Notepad** works, but we recommend a free editor like [Visual Studio Code](https://code.visualstudio.com/) or [Notepad++](https://notepad-plus-plus.org/) for easier reading
+
+> **Tip:** The whole process takes about 5-10 minutes your first time. After that, it's much faster.
+
+## How the process works
+
+1. You get your **Master Key**, a unique code tied to your PC that the game uses to lock your saves
+2. You **decrypt** (unlock) the save file into a readable format called JSON
+3. You **edit** the JSON to change whatever you want
+4. You **encrypt** (re-lock) the JSON back into the format the game expects
+5. You **replace** the original save file with your edited one`
+		},
+		{
+			id: "getting-master-key",
+			title: "Step 1: Getting Your Master Key",
+			content: `Your **Master Key** is a unique code that the game generates on your PC. It's used to lock (encrypt) and unlock (decrypt) your save files. Without it, the tool can't read or write your saves.
+
+There are two ways to get it. Try the easy way first.
+
+## Easy way: PowerShell command
+
+PowerShell is a program that's already installed on every Windows PC. It lets you run commands to do things automatically.
+
+1. On this page, find the **"How to get your key"** box and click the **Copy PowerShell** button, this copies a command to your clipboard
+2. Press **Win + R** on your keyboard (hold the Windows key and tap R). A small "Run" box appears
+3. Type \`powershell\` and press **Enter**. A blue/black window opens. This is PowerShell
+4. **Right-click** anywhere in the PowerShell window, this pastes the command you copied
+5. Press **Enter** to run it
+6. A long string of letters and numbers appears, this is your Master Key
+7. Select it (click and drag, or triple-click), then **right-click** to copy it
+8. Paste it into the **Master Key** field on this page
+
+> **Tip:** The key looks something like \`43316A4DE51C8B7F...\`, it's exactly 64 characters long. If you see something much shorter or longer, something went wrong.
+
+## Manual way: Registry Editor
+
+If PowerShell didn't work, you can find the key directly in the Windows Registry- a database where Windows and apps store settings.
+
+1. Press **Win + R**, type \`regedit\`, and press **Enter**. Click **Yes** if asked for permission
+2. In the left sidebar, navigate to this path by clicking each folder:
+   \`HKEY_CURRENT_USER\\SOFTWARE\\Playmeow\\性轉契約與痴漢少女\`
+3. In the right panel, look for an entry whose name contains \`__LOCAL_MASTER_KEY_V2___h\`
+4. Double-click it to open it
+5. Copy the value in the **"Value data"** field
+6. Paste it into the **Master Key** field on this page and the tool will decode it automatically
+
+> **Tip:** If you can't find the Playmeow folder, make sure you've launched the game at least once. The registry key is created on first launch.`
+		},
+		{
+			id: "decrypting-save",
+			title: "Step 2: Decrypting Your Save",
+			content: `Now that you have your Master Key, you need to find your save file and decrypt (unlock) it.
+
+## Finding your save files
+
+Your save files are stored in a hidden folder. Here's how to get there:
+
+1. Press **Win + R**, paste this path, and press **Enter**:
+   \`%UserProfile%\\AppData\\LocalLow\\Playmeow\\性轉契約與痴漢少女\`
+2. A File Explorer window opens showing your save files. They have the \`.dat\` extension
+
+> **Tip:** If the folder is empty or doesn't exist, the AppData folder might be hidden. In File Explorer, click **View** at the top, then check **Hidden items** to show hidden folders.
+
+The save files are typically named things like \`SaveData0.dat\`, \`SaveData1.dat\`, etc. Each one represents a different save slot.
+
+## Decrypting
+
+1. On this page, paste your **Master Key** into the key field (if you haven't already)
+2. Switch to the **Decrypt** tab
+3. Click **Choose File** and select the \`.dat\` save file you want to edit
+4. Click **Decrypt File**
+5. If successful, you'll see a preview of the save data as JSON
+6. Click **Download JSON** to save the decrypted file to your computer
+
+> **Warning:** Keep the original \`.dat\` file as a backup! Don't delete it until you've confirmed your edited save works in the game.`
+		},
+		{
+			id: "editing-json",
+			title: "Step 3: Editing the JSON",
+			content: `The decrypted save is in a format called **JSON** (JavaScript Object Notation). It's a way of storing data that's both human-readable and machine-readable.
+
+## What JSON looks like
+
+Here's a simplified example:
+
+\`\`\`json
+{
+  "playerName": "Alice",
+  "level": 5,
+  "money": 1200,
+  "unlockedCGs": [1, 2, 3, 7]
+}
+\`\`\`
+
+- Values in **quotes** are text: \`"Alice"\`
+- Numbers don't have quotes: \`5\`, \`1200\`
+- Lists are in **square brackets**: \`[1, 2, 3, 7]\`
+- Everything is wrapped in **curly braces**: \`{ }\`
+
+## How to edit
+
+1. Open the downloaded \`.json\` file in your text editor
+2. Use **Ctrl + F** (Find) to search for the value you want to change
+3. Edit the value- for example, change \`"money": 1200\` to \`"money": 99999\`
+4. Save the file (**Ctrl + S**)
+
+## Rules to follow
+
+> **Warning:** Breaking these rules will corrupt the save file.
+
+- **Don't delete quotes** around text values, \`"Alice"\` is correct, \`Alice\` is not
+- **Don't remove commas** between values, each line (except the last in a group) needs a comma
+- **Don't delete curly braces** \`{ }\` or **square brackets** \`[ ]\` they define the structure
+- **Don't change key names** (the part before the colon) only change the values
+
+> **Tip:** To unlock CGs, look for arrays (lists in square brackets) related to CG or gallery data. Adding numbers to those arrays unlocks the corresponding CGs. The exact field names depend on your game version.
+
+> **Tip:** If you're unsure about your edit, keep a copy of the original JSON open in another window to compare.`
+		},
+		{
+			id: "encrypting-replacing",
+			title: "Step 4: Re-encrypting & Replacing",
+			content: `Once you've edited the JSON, you need to encrypt it back into the format the game can read, then replace the original file.
+
+## Encrypting
+
+1. On this page, make sure your **Master Key** is still entered
+2. Switch to the **Encrypt** tab
+3. Click **Choose File** and select your edited \`.json\` file
+4. Click **Encrypt File**
+5. Click **Download DAT** to save the encrypted file
+
+## Replacing the save file
+
+> **Warning:** Make sure the game is **completely closed** before replacing the file. If the game is running, it may overwrite your changes when it saves.
+
+1. Press **Win + R**, paste this path, and press **Enter**:
+   \`%UserProfile%\\AppData\\LocalLow\\Playmeow\\性轉契約與痴漢少女\`
+2. Find the original \`.dat\` file you decrypted earlier
+3. **Rename** the original file as a backup (e.g., rename \`SaveData0.dat\` to \`SaveData0_backup.dat\`)
+4. Copy your newly encrypted \`.dat\` file into this folder
+5. **Rename** the new file to **exactly** match the original filename (e.g., \`SaveData0.dat\`)
+6. Launch the game and load the save to verify your changes
+
+> **Tip:** The filename must match exactly, including capitalization. If the original was \`SaveData0.dat\`, your new file must also be \`SaveData0.dat\`, not \`savedata0.dat\` or \`SaveData0_edited.dat\`.`
+		},
+		{
+			id: "troubleshooting",
+			title: "Troubleshooting & FAQ",
+			content: `## "HMAC verification failed"
+
+This means the Master Key doesn't match the one used to create the save file. Common causes:
+
+- You copied the key incorrectly, try the PowerShell command again and paste carefully
+- You're trying to decrypt a save file from a different PC, each PC has its own key
+- The save file is corrupted
+
+## "Invalid Master Key format"
+
+The tool expects either:
+- A **64-character hex string** (letters A-F and numbers 0-9 only)
+- A **registry value string** (the raw Base64 value from the Windows Registry)
+
+Make sure you didn't accidentally copy extra spaces or newline characters.
+
+## "Invalid JSON file" when encrypting
+
+Your edited JSON has a syntax error. Common mistakes:
+- Missing or extra **commas**, there should be a comma after each value except the last one in a group
+- Missing **quotes** around text values
+- Deleted a **curly brace** \`{ }\` or **bracket** \`[ ]\`
+
+> **Tip:** Paste your JSON into [jsonlint.com](https://jsonlint.com), it will tell you exactly which line has the error.
+
+## The game ignores my edited save
+
+- Make sure the game was **fully closed** before you replaced the file
+- Check that the filename **exactly matches** the original (including capitalization)
+- Verify the file is in the right folder: \`%UserProfile%\\AppData\\LocalLow\\Playmeow\\性轉契約與痴漢少女\`
+
+## Can I transfer saves between PCs?
+
+Not directly. Each PC has a different Master Key, so a save encrypted on one PC can't be decrypted on another. However, you can:
+
+1. Decrypt the save on the **original PC** (download the JSON)
+2. Copy the JSON to the **new PC**
+3. Get the Master Key on the **new PC**
+4. Encrypt the JSON using the new PC's key
+5. Place the new \`.dat\` file in the save folder on the new PC
+
+## I can't find any .dat files
+
+- Make sure you've actually **saved your game** at least once (not just launched it)
+- Enable **hidden files** in File Explorer: click **View** → check **Hidden items**
+- Double-check you're looking in the right folder, paste the full path from Step 2 into the Run dialog`
+		}
+	];
 
 	// --- Default Constants (for reset) ---
 	const DEFAULT_AES_INFO = "aes-key-for-local-data";
@@ -19,21 +241,21 @@
 
 	// --- State ---
 	// Editable Advanced Parameters
-	let aesInfoStr = DEFAULT_AES_INFO;
-	let hmacInfoStr = DEFAULT_HMAC_INFO;
-	let saltPrefix = DEFAULT_SALT_PREFIX;
+	let aesInfoStr = $state(DEFAULT_AES_INFO); // Assuming Svelte 5 based on 'onclick' usage in your snippet
+	let hmacInfoStr = $state(DEFAULT_HMAC_INFO);
+	let saltPrefix = $state(DEFAULT_SALT_PREFIX);
 
-	let masterKeyInput = "";
-	let isProcessing = false;
+	let masterKeyInput = $state("");
+	let isProcessing = $state(false);
 
-	let decryptFile: File | null = null;
-	let encryptFile: File | null = null;
+	let decryptFile: File | null = $state(null);
+	let encryptFile: File | null = $state(null);
 
-	let decryptedJson = "";
-	$: jsonLines = decryptedJson ? decryptedJson.split("\n") : [];
+	let decryptedJson = $state("");
+	let jsonLines = $derived(decryptedJson ? decryptedJson.split("\n") : []);
 
-	let downloadUrl = "";
-	let downloadName = "";
+	let downloadUrl = $state("");
+	let downloadName = $state("");
 
 	// --- Utilities ---
 
@@ -58,7 +280,6 @@
 		// Case 2: Base64 Wrapped (starts with user-defined prefix)
 		try {
 			const outerDecoded = atob(cleanInput);
-			// Updated to use reactive saltPrefix [cite: 13]
 			if (outerDecoded.startsWith(saltPrefix)) {
 				const innerBase64 = outerDecoded.substring(saltPrefix.length);
 				const rawKeyStr = atob(innerBase64); // This results in binary string
@@ -100,7 +321,7 @@
 	}
 
 	async function decryptData(encryptedBytes: Uint8Array, masterKey: Uint8Array) {
-		// 1. Derive Keys (Using reactive variables) [cite: 20, 21]
+		// 1. Derive Keys
 		const aesKeyBytes = await hkdf(masterKey, 16, aesInfoStr);
 		const hmacKeyBytes = await hkdf(masterKey, 32, hmacInfoStr);
 
@@ -146,7 +367,7 @@
 	}
 
 	async function encryptData(jsonStr: string, masterKey: Uint8Array) {
-		// 1. Derive Keys (Using reactive variables) [cite: 28, 29]
+		// 1. Derive Keys
 		const aesKeyBytes = await hkdf(masterKey, 16, aesInfoStr);
 		const hmacKeyBytes = await hkdf(masterKey, 32, hmacInfoStr);
 
@@ -286,13 +507,46 @@
 	};
 </script>
 
-<div class="container mx-auto max-w-3xl space-y-8 py-10">
-	<div class="space-y-2 text-center">
+<div class="relative container mx-auto max-w-3xl space-y-8 py-10">
+	<div class="relative space-y-2 text-center">
 		<h1 class="text-3xl font-bold tracking-tighter">Save File Tool</h1>
 		<p class="text-muted-foreground">
 			Decrypt and re-encrypt game saves for the game<br />"Sex Change Contract and Molester Girl"
 			(性轉契約與痴漢少女), accurate as of version 1.4.3
 		</p>
+
+		<div class="absolute top-0 right-0">
+			<Dialog.Root>
+				<Dialog.Trigger>
+					{#snippet child({ props })}
+						<Button variant="outline" size="icon" {...props} class="rounded-full">
+							<CircleQuestionMark class="h-5 w-5 text-muted-foreground" />
+							<span class="sr-only">Step-by-Step Guide</span>
+						</Button>
+					{/snippet}
+				</Dialog.Trigger>
+				<Dialog.Content class="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+					<Dialog.Header>
+						<Dialog.Title class="flex items-center gap-2">
+							<BookOpen class="h-5 w-5" /> Step-by-Step Guide
+						</Dialog.Title>
+						<Dialog.Description>
+							A complete walkthrough for editing your save file, from start to finish.
+						</Dialog.Description>
+					</Dialog.Header>
+					<Accordion.Root type="single" class="w-full">
+						{#each guideSections as section (section.id)}
+							<Accordion.Item value={section.id}>
+								<Accordion.Trigger>{section.title}</Accordion.Trigger>
+								<Accordion.Content>
+									<MarkdownContent source={section.content} />
+								</Accordion.Content>
+							</Accordion.Item>
+						{/each}
+					</Accordion.Root>
+				</Dialog.Content>
+			</Dialog.Root>
+		</div>
 	</div>
 
 	<Card.Root>
@@ -399,7 +653,7 @@
 								class="h-48 w-full overflow-y-auto rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs shadow-sm"
 							>
 								<VList data={jsonLines}>
-									{#snippet children(item)}
+									{#snippet children(item: string)}
 										<div class="whitespace-pre">{item}</div>
 									{/snippet}
 								</VList>
@@ -425,8 +679,6 @@
 									} else {
 										toast.error("Failed to copy JSON to clipboard.");
 									}
-
-									toast.success("Decrypted JSON copied to clipboard!");
 								}}
 							>
 								<Copy class="mr-2 h-4 w-4" /> Copy JSON
